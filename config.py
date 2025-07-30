@@ -1,0 +1,3 @@
+# Pon aquí tu token y chat ID de Telegram
+TELEGRAM_TOKEN = '8067790540:AAFCeOIRvu4mcW-LZXVfRbdgZj2lmfCN88A'
+TELEGRAM_CHAT_ID = '1369594913'
