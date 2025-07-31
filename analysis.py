@@ -1,65 +1,40 @@
 from bot import get_ohlcv
 from telegram.ext import ContextTypes
 import asyncio
-from ta.momentum import RSIIndicator
+
+from patterns.anomalies import detectar_anomalias
+from patterns.cruce_ma import detectar_cruce_ma
+
 estado_anterior = {}
 
-def detectar_cruce_ma(df, symbol):
-    print(f"Analizando {symbol} para cruces de medias móviles...")
-    df = df.copy()
-    df['ma9'] = df['close'].rolling(window=9).mean()
-    df['ma21'] = df['close'].rolling(window=21).mean()
-    df['rsi'] = RSIIndicator(close=df['close'], window=14).rsi()
-    
-    # Estado previo para simular cambio
-    estado_anterior = 'ninguno'
-    senales = []
-    
-    for i in range(1, len(df)):
-        cruce_alcista = df['ma9'].iloc[i-1] < df['ma21'].iloc[i-1] and df['ma9'].iloc[i] > df['ma21'].iloc[i]
-        cruce_bajista = df['ma9'].iloc[i-1] > df['ma21'].iloc[i-1] and df['ma9'].iloc[i] < df['ma21'].iloc[i]
-        diferencia = abs(df['ma9'].iloc[i] - df['ma21'].iloc[i])
-        umbral_diferencia = df['close'].iloc[i] * 0.002
-        rsi = df['rsi'].iloc[i]
-        
-        señal = 'ninguno'
-        if cruce_alcista and diferencia > umbral_diferencia and rsi < 70:
-            if estado_anterior != 'compra':
-                señal = 'compra'
-                estado_anterior = 'compra'
-        elif cruce_bajista and diferencia > umbral_diferencia and rsi > 30:
-            if estado_anterior != 'venta':
-                señal = 'venta'
-                estado_anterior = 'venta'
-        senales.append(señal)
-    
-    # Ajustamos para que la lista tenga la misma longitud que df (rellenando el primero)
-    return ['ninguno'] + senales
-
-
-def detectar_anomalias(df, symbol):
-    variacion = (df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2] * 100
-    if variacion > 2:
-        return f'🚀 Subida rápida (+{variacion:.2f}%) en {symbol}'
-    elif variacion < -2:
-        return f'📉 Caída rápida ({variacion:.2f}%) en {symbol}'
-    return None
-
-
 async def analizar_moneda(symbol):
-    df = get_ohlcv(symbol=symbol)
+    df = get_ohlcv(symbol=symbol, limit=50)
     senales = []
 
-    cruce = detectar_cruce_ma(df, symbol)  # Puede devolver lista de strings
+    cruce = detectar_cruce_ma(df, symbol)  # lista o None
     if cruce:
-        # Si devuelve lista, extiéndela, no añadas la lista completa
-        senales.extend([s for s in cruce if s != 'ninguno'])
+        senales.extend(cruce)
 
-    anomalia = detectar_anomalias(df, symbol)  # Devuelve string o None
+    anomalia = detectar_anomalias(df, symbol)  # string o None
     if anomalia:
         senales.append(anomalia)
 
     return senales
+
+def detectar_senales_completas(df, symbol):
+    señales = []
+
+    # Detector de cruces de medias
+    cruces = detectar_cruce_ma(df, symbol)
+    if cruces:
+        señales.extend([s for s in cruces if s in ('compra', 'venta')])
+
+    # Detector de anomalías
+    anomalia = detectar_anomalias(df, symbol)
+    if anomalia:
+        señales.append('compra')  # Se trata como señal de compra
+
+    return señales, anomalia
 
 
 async def obtener_senales_activas(context: ContextTypes.DEFAULT_TYPE):

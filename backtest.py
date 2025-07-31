@@ -10,18 +10,12 @@ import os
 
 backtest_sessions = {}
 
-
 def guardar_evento_csv(evento, filename='backtest_historial.csv'):
-    # Chequear si el archivo existe para saber si escribir encabezado
     archivo_existe = os.path.isfile(filename)
-
     with open(filename, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        # Si el archivo no existía antes, escribe encabezado
         if not archivo_existe:
             writer.writerow(['timestamp', 'precio', 'senal', 'detalle', 'balance', 'coin'])
-
-        # Escribir la fila con datos del evento
         writer.writerow([
             evento.get('timestamp', ''),
             evento.get('precio', 0),
@@ -31,12 +25,10 @@ def guardar_evento_csv(evento, filename='backtest_historial.csv'):
             evento.get('coin', '')
         ])
 
-# Mostrar capital ficticio actual
 async def command_ver_capital(update: Update, context: ContextTypes.DEFAULT_TYPE):
     capital = context.user_data.get('capital', 1000.0)
     await update.message.reply_text(f"Tu capital ficticio actual es: ${capital:.2f}")
 
-# Mostrar estado actual del backtest
 async def command_ver_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in backtest_sessions:
@@ -47,13 +39,13 @@ async def command_ver_backtest(update: Update, context: ContextTypes.DEFAULT_TYP
     capital = session.get('balance', 0)
     history = session.get('history', [])
 
-    texto = f"📊 Estado actual del backtest:\nCapital disponible: ${capital:.2f}\n"
+    texto = f"\U0001F4CA Estado actual del backtest:\nCapital disponible: ${capital:.2f}\n"
 
     if not history:
         texto += "No hay operaciones realizadas aún."
     else:
         texto += "Últimas operaciones:\n"
-        ultimas = history[-5:]  # últimas 5
+        ultimas = history[-5:]
         for evento in ultimas:
             texto += (f"{evento['timestamp']} - {evento['coin']} - "
                       f"{evento['senal'].capitalize()} a ${evento['precio']:.2f} "
@@ -61,7 +53,6 @@ async def command_ver_backtest(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await update.message.reply_text(texto)
 
-# Iniciar backtest
 async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in backtest_sessions and backtest_sessions[user_id].get('activo', False):
@@ -69,7 +60,7 @@ async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     capital = context.user_data.get('capital', 1000.0)
-    coins = context.user_data.get('selected_coins', ['BTC/USDT'])  # Ajusta las monedas por defecto o seleccionadas
+    coins = context.user_data.get('selected_coins', ['BTC/USDT'])
 
     session = {
         'capital': capital,
@@ -86,12 +77,16 @@ async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Backtest iniciado con capital ficticio ${capital:.2f} para {', '.join(coins)}.")
 
     async def backtest_loop():
-        print("Iniciando loop de backtest...")
         while session['activo']:
             for coin in coins:
                 df = get_ohlcv(symbol=coin, limit=50)
-                señales = detectar_cruce_ma(df, coin)
-                señal_actual = señales[-1]
+                señales = detectar_cruce_ma(df, coin) or []
+                anomalia = detectar_anomalias(df, coin)
+
+                señal_actual = next((s for s in reversed(señales) if s in ('compra', 'venta')), None)
+                if not señal_actual and anomalia:
+                    señal_actual = 'compra'  # Consideramos anomalía como señal de compra
+
                 precio_actual = df['close'].iloc[-1]
                 position = session['positions'].get(coin)
 
@@ -109,13 +104,9 @@ async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     cantidad = position['cantidad']
                     ganancia = cantidad * precio_actual
                     session['balance'] += ganancia
-                    del session['positions'][coin]  # borrar la posición correctamente
+                    del session['positions'][coin]
                     detalle = f"Venta {cantidad:.6f} {coin} a ${precio_actual:.2f}, balance ${session['balance']:.2f}"
-                    msg = f"📉 {detalle}"
-
-                anomalia = detectar_anomalias(df, coin)
-                if anomalia:
-                    msg = f"⚠️ {anomalia}"
+                    msg = f"💸 {detalle}"
 
                 if detalle or anomalia:
                     nuevo_evento = {
@@ -129,14 +120,12 @@ async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     session['history'].append(nuevo_evento)
                     guardar_evento_csv(nuevo_evento)
                 if msg:
-                    # Enviar mensaje al chat
                     await context.bot.send_message(chat_id=session['chat_id'], text=msg)
-                    
-            await asyncio.sleep(5)  # Espera entre iteraciones
-    # Iniciar el loop de backtest
+
+            await asyncio.sleep(5)
+
     asyncio.create_task(backtest_loop())
 
-# Establecer capital ficticio
 async def command_capital(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     args = context.args
@@ -155,14 +144,12 @@ async def command_capital(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['capital'] = capital
 
-    # También actualizar si hay sesión activa
     if user_id in backtest_sessions:
         backtest_sessions[user_id]['capital'] = capital
         backtest_sessions[user_id]['balance'] = capital
 
     await update.message.reply_text(f"Capital establecido en ${capital:.2f} para el backtest.")
 
-# Finalizar backtest y enviar CSV
 async def command_fin_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -177,7 +164,6 @@ async def command_fin_backtest(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("No hay datos para guardar del backtest.")
         return
 
-    # Crear CSV en memoria
     output = StringIO()
     writer = csv.writer(output)
     writer.writerow(['timestamp', 'coin', 'precio', 'senal', 'detalle', 'balance'])
@@ -194,11 +180,8 @@ async def command_fin_backtest(update: Update, context: ContextTypes.DEFAULT_TYP
 
     output.seek(0)
 
-    # Enviar CSV al usuario
     await context.bot.send_document(chat_id=update.effective_chat.id,
                                     document=InputFile(output, filename="backtest_resultados.csv"))
 
-    # Limpiar sesión
     del backtest_sessions[user_id]
-
     await update.message.reply_text("Backtest finalizado y archivo enviado. Sesión eliminada.")
