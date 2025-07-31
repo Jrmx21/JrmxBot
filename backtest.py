@@ -11,27 +11,26 @@ import os
 backtest_sessions = {}
 
 
-def guardar_csv_backtest(history, user_id):
-    folder = "backtests"
-    os.makedirs(folder, exist_ok=True)
+def guardar_evento_csv(evento, filename='backtest_historial.csv'):
+    # Chequear si el archivo existe para saber si escribir encabezado
+    archivo_existe = os.path.isfile(filename)
 
-    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename_local = os.path.join(folder, f"backtest_{user_id}.csv")  # Fijo el nombre para ir sobreescribiendo
-
-    with open(filename_local, 'w', newline='', encoding='utf-8') as f:
+    with open(filename, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['timestamp', 'coin', 'precio', 'senal', 'detalle', 'balance'])
-        for evento in history:
-            writer.writerow([
-                evento['timestamp'],
-                evento['coin'],
-                f"{evento['precio']:.2f}",
-                evento['senal'],
-                evento['detalle'],
-                f"{evento.get('balance', 0):.2f}"
-            ])
+        # Si el archivo no existía antes, escribe encabezado
+        if not archivo_existe:
+            writer.writerow(['timestamp', 'precio', 'senal', 'detalle', 'balance', 'coin'])
 
-    return filename_local
+        # Escribir la fila con datos del evento
+        writer.writerow([
+            evento.get('timestamp', ''),
+            evento.get('precio', 0),
+            evento.get('senal', ''),
+            evento.get('detalle', ''),
+            evento.get('balance', 0),
+            evento.get('coin', '')
+        ])
+
 # Mostrar capital ficticio actual
 async def command_ver_capital(update: Update, context: ContextTypes.DEFAULT_TYPE):
     capital = context.user_data.get('capital', 1000.0)
@@ -87,6 +86,7 @@ async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Backtest iniciado con capital ficticio ${capital:.2f} para {', '.join(coins)}.")
 
     async def backtest_loop():
+        print("Iniciando loop de backtest...")
         while session['activo']:
             for coin in coins:
                 df = get_ohlcv(symbol=coin, limit=50)
@@ -118,22 +118,23 @@ async def command_backtest(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msg = f"⚠️ {anomalia}"
 
                 if detalle or anomalia:
-                    session['history'].append({
-                        'timestamp': datetime.datetime.now().isoformat(sep=' ', timespec='seconds'),
+                    nuevo_evento = {
+                        'timestamp': datetime.datetime.now().isoformat(),
                         'coin': coin,
                         'precio': precio_actual,
                         'senal': señal_actual if detalle else 'ninguno',
                         'detalle': detalle or anomalia,
                         'balance': session['balance']
-                    })
-                    guardar_csv_backtest(session['history'], user_id)
+                    }
+                    session['history'].append(nuevo_evento)
+                    guardar_evento_csv(nuevo_evento)
                 if msg:
                     # Enviar mensaje al chat
                     await context.bot.send_message(chat_id=session['chat_id'], text=msg)
-
+                    
             await asyncio.sleep(5)  # Espera entre iteraciones
-
-    context.application.create_task(backtest_loop())
+    # Iniciar el loop de backtest
+    asyncio.create_task(backtest_loop())
 
 # Establecer capital ficticio
 async def command_capital(update: Update, context: ContextTypes.DEFAULT_TYPE):

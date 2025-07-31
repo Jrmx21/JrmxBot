@@ -1,10 +1,11 @@
 from bot import get_ohlcv
 from telegram.ext import ContextTypes
-
+import asyncio
 from ta.momentum import RSIIndicator
 estado_anterior = {}
 
 def detectar_cruce_ma(df, symbol):
+    print(f"Analizando {symbol} para cruces de medias móviles...")
     df = df.copy()
     df['ma9'] = df['close'].rolling(window=9).mean()
     df['ma21'] = df['close'].rolling(window=21).mean()
@@ -43,7 +44,7 @@ def detectar_anomalias(df, symbol):
     elif variacion < -2:
         return f'📉 Caída rápida ({variacion:.2f}%) en {symbol}'
     return None
-import asyncio
+
 
 async def analizar_moneda(symbol):
     df = get_ohlcv(symbol=symbol)

@@ -180,12 +180,31 @@ async def auto_monitor_job(context: ContextTypes.DEFAULT_TYPE):
         for coin in coins:
             try:
                 df = get_ohlcv(symbol=coin, limit=50)
-                alerta = detectar_cruce_ma(df, coin) or detectar_anomalias(df, coin)
-                if alerta:
-                    texto = f"Alerta para {coin}:\n{alerta}"
-                    await enviar_alerta(texto, context, user_id)
+                señales_ma = detectar_cruce_ma(df, coin)  # lista de señales: 'compra', 'venta' o 'ninguno'
+                alerta_anomalia = detectar_anomalias(df, coin)  # texto o None
+
+                # Filtrar señales diferentes a 'ninguno'
+                señales_validas = [s for s in señales_ma if s != 'ninguno']
+
+                # Solo enviar alerta si hay señales de compra/venta o anomalías
+                if señales_validas or alerta_anomalia:
+                    mensaje = f"🔔 *Alerta para {coin}:*\n"
+
+                    if señales_validas:
+                        for s in señales_validas:
+                            if s == 'compra':
+                                mensaje += "🔵 Señal de COMPRA detectada.\n"
+                            elif s == 'venta':
+                                mensaje += "🔴 Señal de VENTA detectada.\n"
+
+                    if alerta_anomalia:
+                        mensaje += f"⚠️ {alerta_anomalia}\n"
+
+                    await enviar_alerta(mensaje, context, user_id)
+
             except Exception as e:
                 print(f"Error analizando {coin} para usuario {user_id}: {e}")
+
                 
 async def command_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
